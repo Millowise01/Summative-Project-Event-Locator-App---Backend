@@ -1,18 +1,17 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { db } = require('../database/connection');
-const { v4: uuidv4 } = require('uuid');
-
 /**
  * Authentication Service
  * Handles user registration, login, and token generation
  */
 
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const db = require('../config/db');
+const logger = require('../config/logger');
+const { v4: uuidv4 } = require('uuid');
+
 class AuthService {
   /**
    * Register a new user
-   * @param {Object} userData - User information
-   * @returns {Promise<Object>} User object with token
    */
   async registerUser(userData) {
     const { email, password, firstName, lastName } = userData;
@@ -28,40 +27,44 @@ class AuthService {
     }
 
     // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
-
+    const hashedPassword = await bcrypt.hash(password, 10);
     const userId = uuidv4();
+
     const user = await db.one(
-      `INSERT INTO users (id, email, password_hash, first_name, last_name, preferred_language)
+      `INSERT INTO users (id, email, password, first_name, last_name, language)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, email, first_name, last_name, preferred_language, created_at`,
-      [userId, email, passwordHash, firstName, lastName, 'en']
+       RETURNING id, email, first_name, last_name, language, created_at`,
+      [userId, email, hashedPassword, firstName, lastName, 'en']
     );
 
     // Create user preferences
     await db.none(
-      'INSERT INTO user_preferences (user_id) VALUES ($1)',
-      [userId]
+      'INSERT INTO user_preferences (id, user_id) VALUES ($1, $2)',
+      [uuidv4(), userId]
     );
 
-    // Generate token
     const token = this.generateToken(user.id);
 
+    logger.info(`User registered: ${email}`);
+
     return {
-      user,
-      token
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        language: user.language,
+      },
+      token,
     };
   }
 
   /**
    * Login user
-   * @param {string} email - User email
-   * @param {string} password - User password
-   * @returns {Promise<Object>} User object with token
    */
   async loginUser(email, password) {
     const user = await db.oneOrNone(
-      `SELECT id, email, password_hash, first_name, last_name, preferred_language, is_active
+      `SELECT id, email, password, first_name, last_name, language, is_active
        FROM users WHERE email = $1`,
       [email]
     );
@@ -74,60 +77,54 @@ class AuthService {
       throw new Error('User account is inactive');
     }
 
-    // Compare passwords
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
       throw new Error('Invalid email or password');
     }
 
-    // Remove password hash from response
-    delete user.password_hash;
-
-    // Generate token
     const token = this.generateToken(user.id);
 
+    logger.info(`User logged in: ${email}`);
+
     return {
-      user,
-      token
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        language: user.language,
+      },
+      token,
     };
   }
 
   /**
-   * Verify and decode JWT token
-   * @param {string} token - JWT token
-   * @returns {Promise<Object>} Decoded token
+   * Generate JWT token
    */
-  async verifyToken(token) {
+  generateToken(userId) {
+    return jwt.sign({ userId }, process.env.JWT_SECRET, {
+      expiresIn: '7d',
+    });
+  }
+
+  /**
+   * Verify JWT token
+   */
+  verifyToken(token) {
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      return decoded;
+      return jwt.verify(token, process.env.JWT_SECRET);
     } catch (error) {
       throw new Error('Invalid or expired token');
     }
   }
 
   /**
-   * Generate JWT token
-   * @param {string} userId - User ID
-   * @returns {string} JWT token
-   */
-  generateToken(userId) {
-    return jwt.sign(
-      { userId },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRY || '7d' }
-    );
-  }
-
-  /**
    * Get user by ID
-   * @param {string} userId - User ID
-   * @returns {Promise<Object>} User object
    */
   async getUserById(userId) {
     const user = await db.oneOrNone(
-      `SELECT id, email, first_name, last_name, phone, location, preferred_language, 
-              created_at, is_active FROM users WHERE id = $1`,
+      `SELECT id, email, first_name, last_name, phone, latitude, longitude, 
+              language, created_at, is_active FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -140,60 +137,70 @@ class AuthService {
 
   /**
    * Update user profile
-   * @param {string} userId - User ID
-   * @param {Object} updates - Fields to update
-   * @returns {Promise<Object>} Updated user object
    */
   async updateUserProfile(userId, updates) {
-    const allowedFields = ['first_name', 'last_name', 'phone', 'preferred_language'];
-    const updateFields = Object.keys(updates)
-      .filter(key => allowedFields.includes(key))
-      .map((key, index) => `${key} = $${index + 2}`);
+    const allowedFields = [
+      'first_name',
+      'last_name',
+      'phone',
+      'language',
+    ];
+    const updateSet = [];
+    const values = [];
+    let paramCount = 1;
 
-    if (updateFields.length === 0) {
+    for (const [key, value] of Object.entries(updates)) {
+      if (allowedFields.includes(key) && value !== undefined) {
+        updateSet.push(`${key} = $${paramCount}`);
+        values.push(value);
+        paramCount++;
+      }
+    }
+
+    if (updateSet.length === 0) {
       throw new Error('No valid fields to update');
     }
 
-    const values = [userId, ...Object.values(updates).filter((_, key) => allowedFields.includes(Object.keys(updates)[key]))];
-    
+    updateSet.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(userId);
+
     const user = await db.one(
-      `UPDATE users SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 RETURNING id, email, first_name, last_name, phone, preferred_language, location`,
+      `UPDATE users SET ${updateSet.join(', ')}
+       WHERE id = $${paramCount}
+       RETURNING id, email, first_name, last_name, phone, language`,
       values
     );
+
+    logger.info(`User profile updated: ${userId}`);
 
     return user;
   }
 
   /**
    * Update user location
-   * @param {string} userId - User ID
-   * @param {number} latitude - Latitude
-   * @param {number} longitude - Longitude
-   * @returns {Promise<Object>} Updated user object
    */
   async updateUserLocation(userId, latitude, longitude) {
     const user = await db.one(
       `UPDATE users 
-       SET location = ST_GeogFromText('POINT($1 $2)'), updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
-       RETURNING id, email, first_name, last_name, location::text`,
-      [longitude, latitude, userId]
+       SET latitude = $1, longitude = $2, 
+           location_point = ST_SetSRID(ST_MakePoint($3, $4), 4326),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING id, latitude, longitude`,
+      [latitude, longitude, longitude, latitude, userId]
     );
+
+    logger.info(`User location updated: ${userId}`);
 
     return user;
   }
 
   /**
    * Change user password
-   * @param {string} userId - User ID
-   * @param {string} currentPassword - Current password
-   * @param {string} newPassword - New password
-   * @returns {Promise<boolean>} Success
    */
   async changePassword(userId, currentPassword, newPassword) {
     const user = await db.oneOrNone(
-      'SELECT password_hash FROM users WHERE id = $1',
+      'SELECT password FROM users WHERE id = $1',
       [userId]
     );
 
@@ -201,19 +208,19 @@ class AuthService {
       throw new Error('User not found');
     }
 
-    // Verify current password
-    const passwordMatch = await bcrypt.compare(currentPassword, user.password_hash);
+    const passwordMatch = await bcrypt.compare(currentPassword, user.password);
     if (!passwordMatch) {
       throw new Error('Current password is incorrect');
     }
 
-    // Hash new password
     const newPasswordHash = await bcrypt.hash(newPassword, 10);
 
     await db.none(
-      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [newPasswordHash, userId]
     );
+
+    logger.info(`Password changed for user: ${userId}`);
 
     return true;
   }
