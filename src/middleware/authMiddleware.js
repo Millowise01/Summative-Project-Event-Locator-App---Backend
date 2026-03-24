@@ -1,12 +1,15 @@
-const authService = require('../services/authService');
-const logger = require('./logger');
-
 /**
  * Authentication Middleware
  * Verifies JWT tokens and attaches user data to requests
  */
 
-async function authenticateToken(req, res, next) {
+const jwt = require('jsonwebtoken');
+const logger = require('../config/logger');
+
+/**
+ * Middleware to verify JWT token
+ */
+function authenticateToken(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
@@ -14,19 +17,27 @@ async function authenticateToken(req, res, next) {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: req.i18n.t('auth.unauthorized')
+        message: req.i18n?.t('auth.unauthorized') || 'Unauthorized',
       });
     }
 
-    const decoded = await authService.verifyToken(token);
-    req.userId = decoded.userId;
-    next();
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+      if (err) {
+        logger.error('Token verification failed:', err.message);
+        return res.status(401).json({
+          success: false,
+          message: req.i18n?.t('auth.unauthorized') || 'Invalid token',
+        });
+      }
+      req.userId = decoded.userId;
+      req.user = decoded;
+      next();
+    });
   } catch (error) {
     logger.error('Authentication error:', error.message);
     res.status(401).json({
       success: false,
-      message: req.i18n.t('auth.unauthorized'),
-      error: error.message
+      message: req.i18n?.t('auth.unauthorized') || 'Unauthorized',
     });
   }
 }

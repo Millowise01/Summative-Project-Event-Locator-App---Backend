@@ -1,6 +1,8 @@
-import pkg from "pg";
-const { Pool } = pkg;
+/**
+ * Database configuration wrapper
+ * Exports the database connection from the connection module
+ */
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
-});
+const { db } = require('../database/connection');
+
+module.exports = db;
