@@ -182,12 +182,11 @@ class AuthService {
   async updateUserLocation(userId, latitude, longitude) {
     const user = await db.one(
       `UPDATE users 
-       SET latitude = $1, longitude = $2, 
-           location_point = ST_SetSRID(ST_MakePoint($3, $4), 4326),
+       SET location = ST_SetSRID(ST_MakePoint($1, $2), 4326),
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5
-       RETURNING id, latitude, longitude`,
-      [latitude, longitude, longitude, latitude, userId]
+       WHERE id = $3
+       RETURNING id, ST_X(location::geometry) as longitude, ST_Y(location::geometry) as latitude`,
+      [longitude, latitude, userId]
     );
 
     logger.info(`User location updated: ${userId}`);

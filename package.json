@@ -10,7 +10,7 @@
     "test:watch": "jest --watch",
     "lint": "eslint src/",
     "migrate": "node src/database/migrations/runMigrations.js",
-    "seed": "node src/database/seeds/seedDatabase.js"
+    "seed": "node src/database/seeds.js"
   },
   "keywords": ["event", "locator", "geospatial", "nodejs"],
   "author": "",

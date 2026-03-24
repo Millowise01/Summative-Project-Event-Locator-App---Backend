@@ -1,4 +1,4 @@
-const { db } = require('../connection');
+const { db, pgp } = require('./connection');
 
 /**
  * Seed default categories into the database
@@ -34,6 +34,12 @@ async function seedCategories() {
     console.error('✗ Category seeding failed:', error.message);
     return false;
   }
+}
+
+if (require.main === module) {
+  seedCategories().finally(() => {
+    pgp.end();
+  });
 }
 
 module.exports = { seedCategories };

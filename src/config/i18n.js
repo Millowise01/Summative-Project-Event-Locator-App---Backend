@@ -1,5 +1,5 @@
 const i18next = require('i18next');
-const middleware = require('i18next-middleware');
+const middleware = require('i18next-http-middleware');
 
 /**
  * i18n Configuration
@@ -194,6 +194,6 @@ i18next.init({
 });
 
 // Middleware for Express
-const i18nMiddleware = middleware.LanguageDetector();
+const i18nMiddleware = new middleware.LanguageDetector();
 
 module.exports = { i18next, i18nMiddleware };
