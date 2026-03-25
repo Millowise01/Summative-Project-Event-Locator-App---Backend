@@ -11,7 +11,7 @@ const { seedCategories } = require('../seeds');
 
 async function runMigrations() {
   try {
-    console.log('🚀 Starting database migrations...\n');
+    console.log('Starting database migrations...\n');
 
     // Initialize schema
     const schemaSuccess = await initializeDatabase();
@@ -25,10 +25,10 @@ async function runMigrations() {
       throw new Error('Database seeding failed');
     }
 
-    console.log('\n✅ Database migrations completed successfully!');
+    console.log('\nDatabase migrations completed successfully!');
     process.exit(0);
   } catch (error) {
-    console.error('\n❌ Migration failed:', error.message);
+    console.error('\nMigration failed:', error.message);
     process.exit(1);
   }
 }
