@@ -31,9 +31,9 @@ class AuthService {
     const userId = uuidv4();
 
     const user = await db.one(
-      `INSERT INTO users (id, email, password, first_name, last_name, language)
+      `INSERT INTO users (id, email, password_hash, first_name, last_name, preferred_language)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, email, first_name, last_name, language, created_at`,
+       RETURNING id, email, first_name, last_name, preferred_language, created_at`,
       [userId, email, hashedPassword, firstName, lastName, 'en']
     );
 
@@ -53,7 +53,7 @@ class AuthService {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        language: user.language,
+        preferredLanguage: user.preferred_language,
       },
       token,
     };
@@ -64,7 +64,7 @@ class AuthService {
    */
   async loginUser(email, password) {
     const user = await db.oneOrNone(
-      `SELECT id, email, password, first_name, last_name, language, is_active
+      `SELECT id, email, password_hash, first_name, last_name, preferred_language, is_active
        FROM users WHERE email = $1`,
       [email]
     );
@@ -77,7 +77,7 @@ class AuthService {
       throw new Error('User account is inactive');
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
       throw new Error('Invalid email or password');
     }
@@ -92,7 +92,7 @@ class AuthService {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        language: user.language,
+        preferredLanguage: user.preferred_language,
       },
       token,
     };
@@ -123,8 +123,10 @@ class AuthService {
    */
   async getUserById(userId) {
     const user = await db.oneOrNone(
-      `SELECT id, email, first_name, last_name, phone, latitude, longitude, 
-              language, created_at, is_active FROM users WHERE id = $1`,
+      `SELECT id, email, first_name, last_name, phone,
+              ST_X(location::geometry) AS longitude,
+              ST_Y(location::geometry) AS latitude,
+              preferred_language, created_at, is_active FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -143,7 +145,7 @@ class AuthService {
       'first_name',
       'last_name',
       'phone',
-      'language',
+      'preferred_language',
     ];
     const updateSet = [];
     const values = [];
@@ -167,7 +169,7 @@ class AuthService {
     const user = await db.one(
       `UPDATE users SET ${updateSet.join(', ')}
        WHERE id = $${paramCount}
-       RETURNING id, email, first_name, last_name, phone, language`,
+       RETURNING id, email, first_name, last_name, phone, preferred_language`,
       values
     );
 
@@ -199,7 +201,7 @@ class AuthService {
    */
   async changePassword(userId, currentPassword, newPassword) {
     const user = await db.oneOrNone(
-      'SELECT password FROM users WHERE id = $1',
+      'SELECT password_hash FROM users WHERE id = $1',
       [userId]
     );
 
@@ -207,7 +209,7 @@ class AuthService {
       throw new Error('User not found');
     }
 
-    const passwordMatch = await bcrypt.compare(currentPassword, user.password);
+    const passwordMatch = await bcrypt.compare(currentPassword, user.password_hash);
     if (!passwordMatch) {
       throw new Error('Current password is incorrect');
     }
@@ -215,7 +217,7 @@ class AuthService {
     const newPasswordHash = await bcrypt.hash(newPassword, 10);
 
     await db.none(
-      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [newPasswordHash, userId]
     );
 

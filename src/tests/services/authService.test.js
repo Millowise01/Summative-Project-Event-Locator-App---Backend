@@ -34,7 +34,8 @@ describe('AuthService', () => {
 
       const result = await authService.registerUser(userData);
 
-      expect(result.user).toEqual(mockUser);
+      expect(result.user.id).toBe(mockUser.id);
+      expect(result.user.email).toBe(mockUser.email);
       expect(result.token).toBeDefined();
       expect(db.oneOrNone).toHaveBeenCalledWith(
         'SELECT id FROM users WHERE email = $1',

@@ -7,6 +7,23 @@ const logger = require('../config/logger');
 const router = express.Router();
 
 /**
+ * GET /api/reviews/top-rated  <-- must be before /:eventId
+ * Get top-rated events
+ */
+router.get('/top-rated', [
+  query('limit').optional().isInt({ min: 1, max: 100 })
+], async (req, res) => {
+  try {
+    const limit = req.query.limit || 10;
+    const events = await reviewService.getTopRatedEvents(limit);
+    res.json({ success: true, data: { count: events.length, events } });
+  } catch (error) {
+    logger.error('Get top rated error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+/**
  * POST /api/reviews/:eventId
  * Create or update a review
  */
@@ -18,35 +35,61 @@ router.post('/:eventId', authenticateToken, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
     const { rating, reviewText } = req.body;
     const { eventId } = req.params;
 
-    const review = await reviewService.createOrUpdateReview(
-      req.userId,
-      eventId,
-      rating,
-      reviewText
-    );
-
+    const review = await reviewService.createOrUpdateReview(req.userId, eventId, rating, reviewText);
     logger.info(`Review submitted for event: ${eventId}`);
 
-    res.status(201).json({
-      success: true,
-      message: 'Review submitted successfully',
-      data: review
-    });
+    res.status(201).json({ success: true, message: 'Review submitted successfully', data: review });
   } catch (error) {
     logger.error('Create review error:', error.message);
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/reviews/:eventId/stats
+ * Get event review statistics
+ */
+router.get('/:eventId/stats', [
+  param('eventId').isUUID()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const stats = await reviewService.getEventStatistics(req.params.eventId);
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    logger.error('Get stats error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * GET /api/reviews/:eventId/user
+ * Get user's review for an event
+ */
+router.get('/:eventId/user', authenticateToken, [
+  param('eventId').isUUID()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, errors: errors.array() });
+    }
+
+    const review = await reviewService.getUserReview(req.userId, req.params.eventId);
+    res.json({ success: true, data: review });
+  } catch (error) {
+    logger.error('Get user review error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
   }
 });
 
@@ -62,95 +105,17 @@ router.get('/:eventId', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const { eventId } = req.params;
     const limit = req.query.limit || 10;
     const offset = req.query.offset || 0;
+    const reviews = await reviewService.getEventReviews(req.params.eventId, limit, offset);
 
-    const reviews = await reviewService.getEventReviews(eventId, limit, offset);
-
-    res.json({
-      success: true,
-      data: {
-        count: reviews.length,
-        reviews
-      }
-    });
+    res.json({ success: true, data: { count: reviews.length, reviews } });
   } catch (error) {
     logger.error('Get reviews error:', error.message);
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/**
- * GET /api/reviews/:eventId/stats
- * Get event review statistics
- */
-router.get('/:eventId/stats', [
-  param('eventId').isUUID()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
-    }
-
-    const { eventId } = req.params;
-    const stats = await reviewService.getEventStatistics(eventId);
-
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    logger.error('Get stats error:', error.message);
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/**
- * GET /api/reviews/:eventId/user
- * Get user's review for an event
- */
-router.get('/:eventId/user', authenticateToken, [
-  param('eventId').isUUID()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
-    }
-
-    const { eventId } = req.params;
-    const review = await reviewService.getUserReview(req.userId, eventId);
-
-    res.json({
-      success: true,
-      data: review
-    });
-  } catch (error) {
-    logger.error('Get user review error:', error.message);
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
+    res.status(400).json({ success: false, message: error.message });
   }
 });
 
@@ -164,54 +129,16 @@ router.delete('/:reviewId', authenticateToken, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, errors: errors.array() });
     }
 
     await reviewService.deleteReview(req.params.reviewId, req.userId);
-
     logger.info(`Review deleted: ${req.params.reviewId}`);
-
-    res.json({
-      success: true,
-      message: 'Review deleted successfully'
-    });
+    res.json({ success: true, message: 'Review deleted successfully' });
   } catch (error) {
     logger.error('Delete review error:', error.message);
     const status = error.message.includes('Unauthorized') ? 403 : 404;
-    res.status(status).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-/**
- * GET /api/reviews/top-rated
- * Get top-rated events
- */
-router.get('/top-rated', [
-  query('limit').optional().isInt({ min: 1, max: 100 })
-], async (req, res) => {
-  try {
-    const limit = req.query.limit || 10;
-    const events = await reviewService.getTopRatedEvents(limit);
-
-    res.json({
-      success: true,
-      data: {
-        count: events.length,
-        events
-      }
-    });
-  } catch (error) {
-    logger.error('Get top rated error:', error.message);
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
+    res.status(status).json({ success: false, message: error.message });
   }
 });
 

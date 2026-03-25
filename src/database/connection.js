@@ -21,14 +21,15 @@ const db = pgp({
   password: process.env.DB_PASSWORD || 'password'
 });
 
-// Test connection
-db.one('SELECT 1')
-  .then(() => {
-    console.log('✓ Database connection successful');
-  })
-  .catch(err => {
-    console.error('✗ Database connection failed:', err.message);
-    process.exit(1);
-  });
+if (process.env.NODE_ENV !== 'test') {
+  db.one('SELECT 1')
+    .then(() => {
+      console.log('✓ Database connection successful');
+    })
+    .catch(err => {
+      console.error('✗ Database connection failed:', err.message);
+      process.exit(1);
+    });
+}
 
 module.exports = { db, pgp };

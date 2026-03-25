@@ -8,7 +8,7 @@ const { db } = require('./connection');
 const schema = `
 -- Enable PostGIS extension
 CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS uuid-ossp;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -22,8 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
   preferred_language VARCHAR(10) DEFAULT 'en',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  is_active BOOLEAN DEFAULT TRUE,
-  INDEX idx_email (email)
+  is_active BOOLEAN DEFAULT TRUE
 );
 
 -- User Preferences table
@@ -43,8 +42,7 @@ CREATE TABLE IF NOT EXISTS categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(50) UNIQUE NOT NULL,
   description TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_name (name)
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Events table
@@ -63,10 +61,7 @@ CREATE TABLE IF NOT EXISTS events (
   current_attendees INTEGER DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  is_active BOOLEAN DEFAULT TRUE,
-  INDEX idx_creator (creator_id),
-  INDEX idx_dates (start_date, end_date),
-  INDEX idx_location (location)
+  is_active BOOLEAN DEFAULT TRUE
 );
 
 -- Event Categories junction table
@@ -85,8 +80,7 @@ CREATE TABLE IF NOT EXISTS event_attendees (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   status VARCHAR(50) DEFAULT 'registered',
   joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(event_id, user_id),
-  INDEX idx_user_events (user_id, event_id)
+  UNIQUE(event_id, user_id)
 );
 
 -- Event Ratings and Reviews table
@@ -98,8 +92,7 @@ CREATE TABLE IF NOT EXISTS event_reviews (
   review_text TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(event_id, user_id),
-  INDEX idx_event_rating (event_id, rating)
+  UNIQUE(event_id, user_id)
 );
 
 -- Favorite Events table
@@ -108,8 +101,7 @@ CREATE TABLE IF NOT EXISTS favorite_events (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, event_id),
-  INDEX idx_user_favorites (user_id)
+  UNIQUE(user_id, event_id)
 );
 
 -- User Category Preferences (for notifications)
@@ -130,16 +122,25 @@ CREATE TABLE IF NOT EXISTS notifications (
   title VARCHAR(200),
   message TEXT,
   read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_user_unread (user_id, read),
-  INDEX idx_created (created_at DESC)
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create indexes for geospatial queries
+-- Standard indexes
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_events_creator ON events(creator_id);
+CREATE INDEX IF NOT EXISTS idx_events_dates ON events(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_attendees_user ON event_attendees(user_id, event_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_event ON event_reviews(event_id, rating);
+CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorite_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);
+
+-- Geospatial indexes
 CREATE INDEX IF NOT EXISTS idx_events_location ON events USING GIST(location);
 CREATE INDEX IF NOT EXISTS idx_users_location ON users USING GIST(location);
 
--- Create function to update updated_at timestamp
+-- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -148,13 +149,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create triggers for updated_at
+-- Triggers for updated_at (drop first to avoid duplicate trigger errors)
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_events_updated_at ON events;
 CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_reviews_updated_at ON event_reviews;
 CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON event_reviews
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 `;
@@ -168,7 +172,7 @@ async function initializeDatabase() {
     
     for (const statement of statements) {
       if (statement.trim()) {
-        await db.query(statement);
+        await db.none(statement);
       }
     }
     
