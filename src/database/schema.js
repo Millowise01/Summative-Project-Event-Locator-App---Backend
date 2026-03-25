@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   first_name VARCHAR(100),
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- User Preferences table
 CREATE TABLE IF NOT EXISTS user_preferences (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   search_radius_km INTEGER DEFAULT 50,
   notification_enabled BOOLEAN DEFAULT TRUE,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 
 -- Categories table
 CREATE TABLE IF NOT EXISTS categories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name VARCHAR(50) UNIQUE NOT NULL,
   description TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   creator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title VARCHAR(200) NOT NULL,
   description TEXT,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 -- Event Categories junction table
 CREATE TABLE IF NOT EXISTS event_categories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS event_categories (
 
 -- Event Attendees table
 CREATE TABLE IF NOT EXISTS event_attendees (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   status VARCHAR(50) DEFAULT 'registered',
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS event_attendees (
 
 -- Event Ratings and Reviews table
 CREATE TABLE IF NOT EXISTS event_reviews (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rating INTEGER CHECK (rating >= 1 AND rating <= 5),
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS event_reviews (
 
 -- Favorite Events table
 CREATE TABLE IF NOT EXISTS favorite_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS favorite_events (
 
 -- User Category Preferences (for notifications)
 CREATE TABLE IF NOT EXISTS user_category_preferences (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS user_category_preferences (
 
 -- Notifications table
 CREATE TABLE IF NOT EXISTS notifications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_id UUID REFERENCES events(id) ON DELETE SET NULL,
   type VARCHAR(50) NOT NULL,
@@ -149,32 +149,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Triggers for updated_at (drop first to avoid duplicate trigger errors)
-DROP TRIGGER IF EXISTS update_users_updated_at ON users;
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Triggers for updated_at
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_users_updated_at') THEN
+        CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
 
-DROP TRIGGER IF EXISTS update_events_updated_at ON events;
-CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
-FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_events_updated_at') THEN
+        CREATE TRIGGER update_events_updated_at BEFORE UPDATE ON events
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
 
-DROP TRIGGER IF EXISTS update_reviews_updated_at ON event_reviews;
-CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON event_reviews
-FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_reviews_updated_at') THEN
+        CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON event_reviews
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END $$;
 `;
 
 async function initializeDatabase() {
   try {
     console.log('Initializing database schema...');
     
-    // Split by ; to execute individual statements
-    const statements = schema.split(';').filter(stmt => stmt.trim());
-    
-    for (const statement of statements) {
-      if (statement.trim()) {
-        await db.none(statement);
-      }
-    }
+    // Execute the entire block at once to prevent breaking triggers/functions
+    await db.none(schema);
     
     console.log('✓ Database schema initialized successfully');
     return true;
