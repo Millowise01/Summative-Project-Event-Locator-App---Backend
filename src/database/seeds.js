@@ -1,9 +1,5 @@
 const { db, pgp } = require('./connection');
 
-/**
- * Seed default categories into the database
- */
-
 const DEFAULT_CATEGORIES = [
   { name: 'music', description: 'Music concerts and performances' },
   { name: 'sports', description: 'Sports events and competitions' },
@@ -21,12 +17,13 @@ async function seedCategories() {
   try {
     console.log('Seeding categories...');
     
-    for (const category of DEFAULT_CATEGORIES) {
-      await db.oneOrNone(
-        'INSERT INTO categories (name, description) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id',
-        [category.name, category.description]
-      );
-    }
+    // Create a ColumnSet for bulk insertion
+    const cs = new pgp.helpers.ColumnSet(['name', 'description'], { table: 'categories' });
+    
+    // Generate the insert query with "ON CONFLICT DO NOTHING"
+    const query = pgp.helpers.insert(DEFAULT_CATEGORIES, cs) + ' ON CONFLICT (name) DO NOTHING';
+    
+    await db.none(query);
     
     console.log('✓ Categories seeded successfully');
     return true;
